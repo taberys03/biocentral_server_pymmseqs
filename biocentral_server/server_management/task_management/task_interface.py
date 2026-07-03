@@ -20,6 +20,7 @@ from ..shared_endpoint_models import (
     ActiveLearningIterationResult,
     ActiveLearningScreeningSimulationResult,
     EmbeddingProgress,
+    ProjectionResult,
 )
 
 from ...utils import get_logger
@@ -65,7 +66,7 @@ class TaskDTO(BaseModel):
     embeddings_file: Optional[str] = None
 
     # projections
-    projection_result: Optional[Dict[str, Any]] = None
+    projection_result: Optional[ProjectionResult] = None
 
     # active_learning
     al_iteration_result: Optional[ActiveLearningIterationResult] = None
