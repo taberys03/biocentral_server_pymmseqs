@@ -59,6 +59,9 @@ class TaskDTO(BaseModel):
     embeddings: Optional[List[BiotrainerSequenceRecord]] = None
     embeddings_file: Optional[str] = None
 
+    #clustering
+    clustered_data: Optional[Dict[str, str]] = None
+
     # projections
     projection_result: Optional[Dict[str, Any]] = None
 
