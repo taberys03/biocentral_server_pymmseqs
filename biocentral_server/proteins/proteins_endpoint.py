@@ -1,14 +1,12 @@
-from typing import Dict
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi_limiter.depends import RateLimiter
-from pydantic import BaseModel, Field  
 
 from .taxonomy import Taxonomy
-from .endpoint_models import TaxonomyResponse, TaxonomyRequest, TaxonomyItem  
+from .endpoint_models import TaxonomyResponse, TaxonomyRequest, TaxonomyItem, ClusteringRequest
 from .proteins_task import ClusterSequencesTask  
 
 from ..server_management import ErrorResponse, NotFoundErrorResponse, TaskManager, UserManager
-from ..utils import get_logger 
+from ..utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -48,13 +46,8 @@ def taxonomy(taxonomy_request: TaxonomyRequest):
     return TaxonomyResponse(taxonomy=taxonomy_list)
 
 
-class ClusteringRequest(BaseModel):
-    sequence_data: Dict[str, str] = Field(..., description="Dictionary of sequence ID to amino acid sequence string")
-    sequence_identity_threshold: float = Field(0.5, ge=0.0, le=1.0)
-    use_linear_clustering: bool = False
-
 @router.post("/cluster/")
-async def trigger_protein_clustering(payload: ClusteringRequest, request: Request): # <-- request injected!
+async def trigger_protein_clustering(payload: ClusteringRequest, request: Request):
     try:
         task_instance = ClusterSequencesTask(
             sequence_data=payload.sequence_data,  

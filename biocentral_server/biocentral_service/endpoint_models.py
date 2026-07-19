@@ -38,3 +38,4 @@ class ServiceStatsResponse(BaseModel):
 
 class ResearchStatsResponse(BaseModel):
     research_stats: ResearchStats = Field(description="Research statistics")
+

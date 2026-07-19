@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -17,10 +17,11 @@ class TaxonomyRequest(BaseModel):
 class TaxonomyResponse(BaseModel):
     taxonomy: List[TaxonomyItem] = Field(description="List of taxonomy lookup results")
 
-class ClusterRequest(BaseModel):
-    sequence_data: dict[str, str] = Field(
-        description="Dictionary mapping sequence IDs to raw amino acid sequences",
-        examples=[{"seq_01": "MVKV...", "seq_02": "MSKG..."}]
+
+class ClusteringRequest(BaseModel):
+    sequence_data: Dict[str, str] = Field(
+        ..., 
+        description="Dictionary mapping sequence IDs to their amino acid sequence strings"
     )
     sequence_identity_threshold: float = Field(
         default=0.5, 
@@ -31,10 +32,4 @@ class ClusterRequest(BaseModel):
     use_linear_clustering: bool = Field(
         default=False, 
         description="If True, uses easy_linclust instead of easy_cluster for massive datasets"
-    )
-
-
-class ClusterResponse(BaseModel):
-    clustered_data: dict[str, str] = Field(
-        description="Filtered dictionary containing only the representative cluster sequences"
     )

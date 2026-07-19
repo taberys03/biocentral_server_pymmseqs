@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel, ConfigDict
 from biotrainer.output_files import OutputData
 from biotrainer.input_files import BiotrainerSequenceRecord
-from typing import Any, Dict, Callable, Generator, Optional, List, Tuple
+from typing import Any, Dict, Callable, Generator, Optional, List, Tuple, Union
 
 from .task_utils import run_subtask_util
 
@@ -60,7 +60,7 @@ class TaskDTO(BaseModel):
     embeddings_file: Optional[str] = None
 
     #clustering
-    clustered_data: Optional[Dict[str, str]] = None
+    clustered_data: Optional[Dict[str, Union[str, List[str]]]] = None
 
     # projections
     projection_result: Optional[Dict[str, Any]] = None
@@ -115,3 +115,4 @@ class PreEmbedMixin:
             return TaskDTO.errored("Did not receive embeddings for training!"), []
 
         return None, embeddings
+

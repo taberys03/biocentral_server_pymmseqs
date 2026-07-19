@@ -1,10 +1,9 @@
 import os
+import shutil
 import tempfile
-from typing import Callable, Dict
-
+from typing import Callable, Dict, List
 
 from pymmseqs.commands import easy_cluster, easy_linclust
-
 from ..server_management import TaskInterface, TaskDTO, TaskStatus
 
 class ClusterSequencesTask(TaskInterface):
@@ -24,50 +23,57 @@ class ClusterSequencesTask(TaskInterface):
         self.use_linear_clustering = use_linear_clustering
 
     def run_task(self, update_dto_callback: Callable) -> TaskDTO:
-        # Status auf RUNNING setzen
+        # Set task status to RUNNING
         update_dto_callback(TaskDTO(status=TaskStatus.RUNNING))
 
         temp_input_path = None
         temp_output_prefix = None
 
         try:
-            # 1. Dictionary in temporäre FASTA-Datei schreiben
+            # 1. Open Context Manager for temporary FASTA file
             with tempfile.NamedTemporaryFile(mode="w+", suffix=".fasta", delete=False) as temp_input:
                 for seq_id, seq in self.sequence_data.items():
                     temp_input.write(f">{seq_id}\n{seq}\n")
                 temp_input_path = temp_input.name
 
-            # 2. Ein flüchtiges Präfix für die MMseqs2-Ausgabedateien im Standard-Temp-Pfad erzeugen
-            # Wir erstellen keinen Ordner, sondern nutzen einen eindeutigen Datei-Präfix
-            temp_output_prefix = os.path.join(tempfile.gettempdir(), f"mmseqs_out_{os.getpid()}")
+                # 2. Create a unique prefix for MMseqs2 output files within the context
+                temp_output_prefix = os.path.join(tempfile.gettempdir(), f"mmseqs_out_{os.getpid()}")
 
-            print("Running pymmseqs command from temporary FASTA file...")
+                print("Running pymmseqs command from temporary FASTA file...")
 
-            # 3. MMseqs2-Clustering ausführen
-            if self.use_linear_clustering:
-                cluster_results = easy_linclust(
-                    temp_input_path,
-                    temp_output_prefix,
-                    tempfile.gettempdir(),
-                    min_seq_id=self.sequence_identity_threshold,
-                )
-            else:
-                cluster_results = easy_cluster(
-                    temp_input_path,
-                    temp_output_prefix,
-                    tempfile.gettempdir(),
-                    min_seq_id=self.sequence_identity_threshold,
-                )
+                # 3. Execute MMseqs2 clustering inside the context scope
+                if self.use_linear_clustering:
+                    easy_linclust(
+                        temp_input_path,
+                        temp_output_prefix,
+                        tempfile.gettempdir(),
+                        min_seq_id=self.sequence_identity_threshold,
+                    )
+                else:
+                    easy_cluster(
+                        temp_input_path,
+                        temp_output_prefix,
+                        tempfile.gettempdir(),
+                        min_seq_id=self.sequence_identity_threshold,
+                    )
 
-            # 4. Resultate direkt über pymmseqs parsen (Kein manuelles Suchen nach Dateien nötig!)
-            clustered_results = {}
-            for cluster in cluster_results.to_gen():
-                rep_id = cluster.get("rep")
-                # Wenn der Representative-Key in unseren Ursprungsdaten liegt, übernehmen wir ihn
-                if rep_id and rep_id in self.sequence_data:
-                    clustered_results[rep_id] = self.sequence_data[rep_id]
+            # 4. Parse the generated TSV file to map representatives to their cluster members
+            tsv_file = f"{temp_output_prefix}_cluster.tsv"
+            clustered_results: Dict[str, List[str]] = {}
 
-            # Rückgabe der finalen repräsentativen Sequenzen
+            if not os.path.exists(tsv_file):
+                raise FileNotFoundError("MMseqs2 did not generate the expected TSV cluster file.")
+
+            with open(tsv_file, "r") as f:
+                for line in f:
+                    parts = line.strip().split("\t")
+                    if len(parts) == 2:
+                        rep_id, member_id = parts[0], parts[1]
+                        if rep_id not in clustered_results:
+                            clustered_results[rep_id] = []
+                        clustered_results[rep_id].append(member_id)
+
+            # Return the finished DTO with the mapped cluster IDs
             return TaskDTO(status=TaskStatus.FINISHED, clustered_data=clustered_results)
 
         except Exception as e:
@@ -75,21 +81,20 @@ class ClusterSequencesTask(TaskInterface):
             return TaskDTO.errored(f"Clustering failed: {str(e)}")
 
         finally:
-            # 5. AUFRÄUMEN: Temporäre Eingabedatei löschen
+            # 5. CLEANUP: Delete temporary input file
             if temp_input_path and os.path.exists(temp_input_path):
                 try:
                     os.unlink(temp_input_path)
                 except Exception:
                     pass
 
-            # Generierte MMseqs-Dateien (z.B. _rep_seq.fasta, _all_seqs.fasta, etc.) aufräumen
+            # Clean up generated MMseqs output files
             if temp_output_prefix:
                 for suffix in ["_rep_seq.fasta", "_all_seqs.fasta", "_cluster.tsv", ""]:
                     file_to_delete = f"{temp_output_prefix}{suffix}"
                     if os.path.exists(file_to_delete):
                         try:
                             if os.path.isdir(file_to_delete):
-                                import shutil
                                 shutil.rmtree(file_to_delete)
                             else:
                                 os.unlink(file_to_delete)
