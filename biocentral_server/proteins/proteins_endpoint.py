@@ -24,6 +24,12 @@ from ..server_management import (
 )
 from ..utils import get_logger
 
+import time
+from collections import OrderedDict
+from dataclasses import dataclass
+from typing import Any, Optional
+
+
 logger = get_logger(__name__)
 
 router = APIRouter(
@@ -31,8 +37,65 @@ router = APIRouter(
     tags=["proteins"],
     responses={404: {"model": NotFoundErrorResponse}},
 )
+@dataclass
+class CacheEntry: 
+    data: Any
+    last_accessed: float
 
-DATASET_CACHE: dict[str, dict[str, str]] = {}
+class InMemoryTTLCache: 
+    def __init__(self, max_size: int=10, ttl_seconds: float=600.0):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
+
+    def _purge_expired(self, now: float) -> None: 
+        "Remove expired entries"
+        expired_keys = [
+            key
+            for key, entry in self._cache.items()
+            if now - entry.last_accessed > self.ttl_seconds
+        ]
+        for key in expired_keys: 
+            del self._cache[key]
+
+    def get(self, key: str) -> Optional[Any]: 
+        now = time.time()
+        self._purge_expired(now)
+
+        entry = self._cache.get(key)
+        if entry is None: 
+            return None
+
+        # Accessing the hash renews the timestamp
+        entry.last_accessed = now
+        self._cache.move_to_end(key)
+        return entry.data
+
+    def set(self, key: str, value: Any) -> None: 
+        now = time.time()
+        self._purge_expired(now)
+
+        if key in self._cache: 
+            # Update existing Entry
+            self._cache[key] = CacheEntry(data=value, last_accessed=now)
+            self._cache.move_to_end(key)
+            return
+
+        # Remove oldest entry when limit is reached
+        if len(self._cache) >= self.max_size: 
+            self._cache.popitem(last=False)
+
+        self._cache[key] = CacheEntry(data=value, last_accessed=now)
+
+    def __contains__(self, key: str):
+        return self.get(key) is not None
+
+    def __len__(self) -> int:
+        self._purge_expired(time.time())
+        return len(self._cache)
+
+
+DATASET_CACHE = InMemoryTTLCache(max_size=10, ttl_seconds=600)
 
 def _calculate_hbi(
     clusters: dict[str, list[str]], 
@@ -152,7 +215,7 @@ async def trigger_protein_clustering(payload: ClusteringRequest, request: Reques
 def cluster_hbi(payload: ClusterHBIRequest): 
     # resolve caches sequences or store new upload
     if payload.sequence_data: 
-        DATASET_CACHE[payload.dataset_hash] = payload.sequence_data
+        DATASET_CACHE.set(payload.dataset_hash, payload.sequence_data)
         sequences = payload.sequence_data
     else: 
         sequences=DATASET_CACHE.get(payload.dataset_hash)
@@ -186,4 +249,3 @@ def cluster_hbi(payload: ClusterHBIRequest):
         num_members=total_members,
         evaluated_members=evaluated_members,
     )
-
